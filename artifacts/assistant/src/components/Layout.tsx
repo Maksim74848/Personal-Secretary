@@ -1,23 +1,17 @@
 import { Link, useLocation } from "wouter";
 import { useTheme } from "@/lib/theme";
 import {
-  LayoutDashboard, MessageSquare, Calendar, CheckSquare,
-  Users, Activity, Send, Shield, Brain, ScrollText, Moon, Sun, Zap
+  MessageSquare, Calendar, CheckSquare, Users, Settings, Moon, Sun, Zap
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useGetUserStatus } from "@workspace/api-client-react";
 
 const NAV = [
-  { path: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { path: "/chat", icon: MessageSquare, label: "Chat" },
-  { path: "/calendar", icon: Calendar, label: "Calendar" },
-  { path: "/tasks", icon: CheckSquare, label: "Tasks" },
-  { path: "/contacts", icon: Users, label: "Contacts" },
-  { path: "/status", icon: Activity, label: "Status" },
-  { path: "/telegram", icon: Send, label: "Telegram" },
-  { path: "/rules", icon: Shield, label: "Rules" },
-  { path: "/memory", icon: Brain, label: "Memory" },
-  { path: "/logs", icon: ScrollText, label: "Logs" },
+  { path: "/", icon: MessageSquare, label: "Ассистент" },
+  { path: "/calendar", icon: Calendar, label: "Календарь" },
+  { path: "/tasks", icon: CheckSquare, label: "Задачи" },
+  { path: "/contacts", icon: Users, label: "Контакты" },
+  { path: "/settings", icon: Settings, label: "Настройки" },
 ];
 
 const STATUS_COLORS: Record<string, string> = {
@@ -27,69 +21,73 @@ const STATUS_COLORS: Record<string, string> = {
   custom: "bg-purple-500",
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  free: "Свободен",
+  busy: "Занят",
+  unavailable: "Недоступен",
+  custom: "Особый",
+};
+
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { theme, toggle } = useTheme();
   const { data: status } = useGetUserStatus();
 
+  const isActive = (path: string) =>
+    path === "/" ? location === "/" : location.startsWith(path);
+
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      {/* Sidebar */}
-      <aside className="w-56 flex-shrink-0 flex flex-col bg-sidebar border-r border-sidebar-border">
-        {/* Logo */}
-        <div className="flex items-center gap-2.5 px-4 py-4 border-b border-sidebar-border">
-          <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
-            <Zap size={14} className="text-white" />
+    <div className="flex flex-col h-screen overflow-hidden bg-background max-w-2xl mx-auto relative">
+      {/* Top header */}
+      <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur-sm flex-shrink-0 z-10">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
+            <Zap size={13} className="text-white" />
           </div>
           <div>
-            <span className="text-sidebar-foreground font-semibold text-sm tracking-wide">ARIA</span>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <span className={cn("w-1.5 h-1.5 rounded-full", STATUS_COLORS[status?.status ?? "free"] ?? "bg-green-500")} />
-              <span className="text-xs text-sidebar-foreground opacity-50 capitalize">{status?.status ?? "free"}</span>
+            <span className="text-foreground font-semibold text-sm">ARIA</span>
+            <div className="flex items-center gap-1.5">
+              <span className={cn("w-1.5 h-1.5 rounded-full flex-shrink-0", STATUS_COLORS[status?.status ?? "free"])} />
+              <span className="text-xs text-muted-foreground">{STATUS_LABELS[status?.status ?? "free"]}</span>
+              {status?.context ? <span className="text-xs text-muted-foreground">· {status.context}</span> : null}
             </div>
           </div>
         </div>
+        <button
+          onClick={toggle}
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          aria-label="Переключить тему"
+        >
+          {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+        </button>
+      </header>
 
-        {/* Nav */}
-        <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto scrollbar-thin">
+      {/* Page content */}
+      <main className="flex-1 overflow-y-auto scrollbar-thin">
+        {children}
+      </main>
+
+      {/* Bottom navigation */}
+      <nav className="flex-shrink-0 border-t border-border bg-background/95 backdrop-blur-sm safe-area-pb">
+        <div className="flex">
           {NAV.map(({ path, icon: Icon, label }) => {
-            const active = location === path || (path !== "/" && location.startsWith(path));
+            const active = isActive(path);
             return (
               <Link
                 key={path}
                 href={path}
-                data-testid={`nav-${label.toLowerCase()}`}
                 className={cn(
-                  "flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition-all duration-150 cursor-pointer",
-                  active
-                    ? "bg-primary text-white font-medium"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  "flex-1 flex flex-col items-center justify-center py-2.5 gap-1 transition-colors text-center",
+                  active ? "text-primary" : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                <Icon size={15} className="flex-shrink-0" />
-                {label}
+                <Icon size={20} strokeWidth={active ? 2.5 : 1.8} />
+                <span className={cn("text-[10px] leading-none font-medium", active ? "text-primary" : "")}>{label}</span>
               </Link>
             );
           })}
-        </nav>
-
-        {/* Footer */}
-        <div className="px-3 py-3 border-t border-sidebar-border">
-          <button
-            data-testid="button-theme-toggle"
-            onClick={toggle}
-            className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-md text-xs text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-          >
-            {theme === "dark" ? <Sun size={13} /> : <Moon size={13} />}
-            {theme === "dark" ? "Light mode" : "Dark mode"}
-          </button>
         </div>
-      </aside>
-
-      {/* Main */}
-      <main className="flex-1 overflow-y-auto scrollbar-thin">
-        {children}
-      </main>
+      </nav>
     </div>
   );
 }

@@ -1,154 +1,267 @@
-import { useGetDashboardSummary, useGetUserStatus, useGetTasks, useGetEvents } from "@workspace/api-client-react";
-import { CheckSquare, Calendar, Users, MessageSquare, Clock, TrendingUp } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useGetConversations, useGetConversationMessages, useSendMessage,
+  useGetUserStatus, useSetUserStatus,
+  getGetConversationsQueryKey, getGetConversationMessagesQueryKey,
+  getGetUserStatusQueryKey,
+} from "@workspace/api-client-react";
+import { Send, Mic, MicOff, Plus, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Link } from "wouter";
+import { useToast } from "@/hooks/use-toast";
 
-function StatCard({ icon: Icon, label, value, color, href }: {
-  icon: React.ElementType; label: string; value: number | string; color: string; href?: string;
-}) {
-  const inner = (
-    <div className={cn(
-      "bg-card border border-card-border rounded-xl p-4 flex items-center gap-4 transition-all duration-200 hover:shadow-md hover:border-primary/30",
-      href && "cursor-pointer"
-    )}>
-      <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0", color)}>
-        <Icon size={18} className="text-white" />
-      </div>
-      <div>
-        <div className="text-2xl font-bold text-foreground">{value}</div>
-        <div className="text-xs text-muted-foreground">{label}</div>
-      </div>
-    </div>
-  );
-  return href ? (
-    <Link href={href} data-testid={`stat-${label.toLowerCase().replace(/\s/g,"-")}`} className="block">
-      {inner}
-    </Link>
-  ) : inner;
-}
+const STATUS_OPTIONS = [
+  { value: "free", label: "Свободен", color: "bg-green-500", desc: "Доступен для общения" },
+  { value: "busy", label: "Занят", color: "bg-yellow-500", desc: "Ограниченный доступ" },
+  { value: "unavailable", label: "Недоступен", color: "bg-red-500", desc: "Не беспокоить" },
+  { value: "custom", label: "Особый", color: "bg-purple-500", desc: "Свой статус" },
+];
 
-const PRIORITY_COLORS: Record<string, string> = {
-  urgent: "bg-red-500/15 text-red-500 border-red-500/20",
-  high: "bg-orange-500/15 text-orange-500 border-orange-500/20",
-  normal: "bg-blue-500/15 text-blue-500 border-blue-500/20",
-  low: "bg-muted text-muted-foreground border-border",
-};
+export default function AssistantPage() {
+  const [convId, setConvId] = useState<number | null>(null);
+  const [input, setInput] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+  const [showConvs, setShowConvs] = useState(false);
+  const [showStatus, setShowStatus] = useState(false);
+  const [statusContext, setStatusContext] = useState("");
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const qc = useQueryClient();
+  const { toast } = useToast();
 
-const STATUS_BG: Record<string, string> = {
-  free: "bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/20",
-  busy: "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/20",
-  unavailable: "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/20",
-  custom: "bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/20",
-};
+  const { data: statusData } = useGetUserStatus();
+  const setStatus = useSetUserStatus();
+  const { data: conversations } = useGetConversations();
+  const { data: messages, isLoading: loadingMsgs } = useGetConversationMessages(convId!, {
+    query: { enabled: !!convId, queryKey: getGetConversationMessagesQueryKey(convId!) }
+  });
+  const send = useSendMessage();
 
-export default function Dashboard() {
-  const { data: summary, isLoading } = useGetDashboardSummary();
-  const { data: status } = useGetUserStatus();
-  const { data: tasks } = useGetTasks({ status: "pending" });
-  const { data: events } = useGetEvents({ from: new Date().toISOString().split("T")[0] });
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, send.isPending]);
 
-  const todayEvents = events?.slice(0, 3) ?? [];
-  const urgentTasks = tasks?.filter(t => t.priority === "urgent" || t.priority === "high").slice(0, 4) ?? [];
+  useEffect(() => {
+    if (statusData) setStatusContext(statusData.context ?? "");
+  }, [statusData]);
+
+  function handleSend() {
+    const content = input.trim();
+    if (!content || send.isPending) return;
+    setInput("");
+    send.mutate({ data: { content, conversationId: convId ?? undefined } }, {
+      onSuccess: (msg) => {
+        if (!convId) setConvId(msg.conversationId);
+        qc.invalidateQueries({ queryKey: getGetConversationsQueryKey() });
+        qc.invalidateQueries({ queryKey: getGetConversationMessagesQueryKey(msg.conversationId) });
+      },
+      onError: () => toast({ title: "Ошибка отправки сообщения", variant: "destructive" }),
+    });
+  }
+
+  function handleVoice() {
+    type AnyRec = {
+      lang: string; interimResults: boolean;
+      onresult: ((e: { results: { [i: number]: { [j: number]: { transcript: string } } } }) => void) | null;
+      onerror: (() => void) | null; onend: (() => void) | null; start: () => void;
+    };
+    type WinExt = { SpeechRecognition?: new () => AnyRec; webkitSpeechRecognition?: new () => AnyRec };
+    const w = window as unknown as WinExt;
+    const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
+    if (!SR) { toast({ title: "Голосовой ввод не поддерживается браузером" }); return; }
+    const rec = new SR();
+    rec.lang = "ru-RU";
+    rec.interimResults = false;
+    setIsRecording(true);
+    rec.onresult = (e) => {
+      const t = e.results[0][0].transcript;
+      setInput(prev => prev + (prev ? " " : "") + t);
+      setIsRecording(false);
+      setTimeout(() => inputRef.current?.focus(), 100);
+    };
+    rec.onerror = () => { setIsRecording(false); toast({ title: "Ошибка голосового ввода" }); };
+    rec.onend = () => setIsRecording(false);
+    rec.start();
+  }
+
+  function handleSetStatus(value: string) {
+    setStatus.mutate({ data: { status: value, context: statusContext } }, {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: getGetUserStatusQueryKey() });
+        setShowStatus(false);
+      },
+    });
+  }
+
+  const displayMessages = messages ?? [];
+  const currentStatus = STATUS_OPTIONS.find(s => s.value === (statusData?.status ?? "free")) ?? STATUS_OPTIONS[0]!;
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-semibold text-foreground">Dashboard</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+    <div className="flex flex-col h-full">
+      {/* Status + conversation bar */}
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-muted/30 flex-shrink-0">
+        {/* Status picker */}
+        <div className="relative">
+          <button
+            onClick={() => { setShowStatus(v => !v); setShowConvs(false); }}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-muted text-sm text-foreground hover:bg-muted/80 transition-colors"
+          >
+            <span className={cn("w-2 h-2 rounded-full flex-shrink-0", currentStatus.color)} />
+            <span className="text-xs font-medium">{currentStatus.label}</span>
+            <ChevronDown size={11} className="text-muted-foreground" />
+          </button>
+          {showStatus && (
+            <div className="absolute top-full left-0 mt-1 w-64 bg-popover border border-popover-border rounded-xl shadow-lg z-50 overflow-hidden">
+              {STATUS_OPTIONS.map(opt => (
+                <button key={opt.value} onClick={() => handleSetStatus(opt.value)}
+                  className={cn("w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted text-left transition-colors", statusData?.status === opt.value && "bg-muted/50")}>
+                  <span className={cn("w-2.5 h-2.5 rounded-full flex-shrink-0", opt.color)} />
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{opt.label}</p>
+                    <p className="text-xs text-muted-foreground">{opt.desc}</p>
+                  </div>
+                </button>
+              ))}
+              <div className="px-3 py-2.5 border-t border-border">
+                <input value={statusContext} onChange={e => setStatusContext(e.target.value)}
+                  placeholder="Контекст (напр. в школе)"
+                  className="w-full bg-background border border-input rounded-lg px-2.5 py-1.5 text-xs outline-none focus:ring-1 focus:ring-ring" />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Conversation selector */}
+        <div className="relative flex-1">
+          <button
+            onClick={() => { setShowConvs(v => !v); setShowStatus(false); }}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-muted text-sm text-muted-foreground hover:bg-muted/80 transition-colors max-w-full"
+          >
+            <span className="text-xs truncate">
+              {convId ? (conversations?.find(c => c.id === convId)?.title ?? "Диалог") : "Новый диалог"}
+            </span>
+            <ChevronDown size={11} className="flex-shrink-0" />
+          </button>
+          {showConvs && (
+            <div className="absolute top-full left-0 mt-1 w-64 bg-popover border border-popover-border rounded-xl shadow-lg z-50 overflow-hidden max-h-60 overflow-y-auto">
+              <button onClick={() => { setConvId(null); setShowConvs(false); }}
+                className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-muted text-left transition-colors border-b border-border">
+                <Plus size={13} className="text-primary" />
+                <span className="text-sm font-medium text-foreground">Новый диалог</span>
+              </button>
+              {!conversations?.length && (
+                <p className="text-xs text-muted-foreground px-3 py-3 text-center">История пуста</p>
+              )}
+              {conversations?.map(c => (
+                <button key={c.id} onClick={() => { setConvId(c.id); setShowConvs(false); }}
+                  className={cn("w-full px-3 py-2.5 text-left hover:bg-muted transition-colors", convId === c.id && "bg-muted/50")}>
+                  <p className="text-sm text-foreground truncate">{c.title}</p>
+                  {c.lastMessage && <p className="text-xs text-muted-foreground truncate mt-0.5">{c.lastMessage}</p>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Click outside to close dropdowns */}
+      {(showStatus || showConvs) && (
+        <div className="fixed inset-0 z-40" onClick={() => { setShowStatus(false); setShowConvs(false); }} />
+      )}
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto scrollbar-thin px-4 py-4 space-y-3">
+        {!convId && !send.isPending && (
+          <div className="flex flex-col items-center justify-center h-full text-center px-6">
+            <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-3">
+              <span className="text-2xl">🤖</span>
+            </div>
+            <p className="text-base font-semibold text-foreground">Привет! Я ARIA</p>
+            <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">
+              Ваш персональный ИИ-ассистент. Напишите или скажите что-нибудь — я помогу.
             </p>
           </div>
-          {status && (
-            <div data-testid="status-current" className={cn(
-              "px-3 py-1.5 rounded-full text-xs font-medium border capitalize",
-              STATUS_BG[status.status] ?? STATUS_BG.free
+        )}
+
+        {loadingMsgs && (
+          <div className="text-xs text-muted-foreground text-center py-4">Загрузка сообщений...</div>
+        )}
+
+        {displayMessages.map(msg => (
+          <div key={msg.id} className={cn("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
+            {msg.role !== "user" && (
+              <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mr-2 mt-0.5">
+                <span className="text-xs">🤖</span>
+              </div>
+            )}
+            <div className={cn(
+              "max-w-[78%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed",
+              msg.role === "user"
+                ? "bg-primary text-white rounded-br-sm"
+                : "bg-card border border-card-border text-foreground rounded-bl-sm"
             )}>
-              {status.context ? `${status.status} — ${status.context}` : status.status}
+              <p className="whitespace-pre-wrap">{msg.content}</p>
+              <p className={cn("text-[10px] mt-1 opacity-50", msg.role === "user" ? "text-right" : "")}>
+                {new Date(msg.createdAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+              </p>
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        <StatCard icon={CheckSquare} label="Pending Tasks" value={isLoading ? "—" : (summary?.pendingTasks ?? 0)} color="bg-blue-500" href="/tasks" />
-        <StatCard icon={Calendar} label="Today's Events" value={isLoading ? "—" : (summary?.todayEvents ?? 0)} color="bg-purple-500" href="/calendar" />
-        <StatCard icon={Users} label="Total Contacts" value={isLoading ? "—" : (summary?.totalContacts ?? 0)} color="bg-green-500" href="/contacts" />
-        <StatCard icon={MessageSquare} label="Messages (24h)" value={isLoading ? "—" : (summary?.recentMessages ?? 0)} color="bg-orange-500" href="/chat" />
-      </div>
-
-      {/* Two-col grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Upcoming Events */}
-        <div className="bg-card border border-card-border rounded-xl p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-              <Calendar size={14} className="text-purple-500" /> Upcoming Events
-            </h2>
-            <Link href="/calendar" className="text-xs text-primary hover:underline">View all</Link>
           </div>
-          {todayEvents.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">No upcoming events</p>
-          ) : (
-            <div className="space-y-2">
-              {todayEvents.map(ev => (
-                <div key={ev.id} data-testid={`event-item-${ev.id}`} className="flex items-start gap-3 p-2.5 rounded-lg bg-muted/40">
-                  <div className="w-1.5 h-1.5 rounded-full bg-purple-500 mt-1.5 flex-shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-foreground truncate">{ev.title}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(ev.startTime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
-                      {ev.location && ` · ${ev.location}`}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        ))}
 
-        {/* Priority Tasks */}
-        <div className="bg-card border border-card-border rounded-xl p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-              <TrendingUp size={14} className="text-orange-500" /> Priority Tasks
-            </h2>
-            <Link href="/tasks" className="text-xs text-primary hover:underline">View all</Link>
-          </div>
-          {urgentTasks.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">No urgent tasks</p>
-          ) : (
-            <div className="space-y-2">
-              {urgentTasks.map(task => (
-                <div key={task.id} data-testid={`task-item-${task.id}`} className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/40">
-                  <span className={cn("px-1.5 py-0.5 rounded text-xs border capitalize flex-shrink-0", PRIORITY_COLORS[task.priority] ?? PRIORITY_COLORS.normal)}>
-                    {task.priority}
-                  </span>
-                  <span className="text-sm text-foreground truncate">{task.title}</span>
-                  {task.dueDate && (
-                    <span className="text-xs text-muted-foreground ml-auto flex-shrink-0 flex items-center gap-1">
-                      <Clock size={10} /> {task.dueDate}
-                    </span>
-                  )}
-                </div>
-              ))}
+        {send.isPending && (
+          <div className="flex justify-start">
+            <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mr-2 mt-0.5">
+              <span className="text-xs">🤖</span>
             </div>
-          )}
-        </div>
+            <div className="bg-card border border-card-border rounded-2xl rounded-bl-sm px-4 py-3">
+              <div className="flex gap-1.5 items-center">
+                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce [animation-delay:-0.3s]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce [animation-delay:-0.15s]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" />
+              </div>
+            </div>
+          </div>
+        )}
+        <div ref={bottomRef} />
       </div>
 
-      {/* Quick chat shortcut */}
-      <div className="mt-4 bg-card border border-card-border rounded-xl p-4">
-        <Link href="/chat" data-testid="link-quick-chat" className="flex items-center gap-3 text-sm text-muted-foreground hover:text-foreground transition-colors">
-            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-              <MessageSquare size={14} className="text-primary" />
-            </div>
-            <span>Ask ARIA anything...</span>
-            <span className="ml-auto text-xs text-muted-foreground">Press Enter</span>
-        </Link>
+      {/* Input area */}
+      <div className="flex-shrink-0 px-3 py-3 border-t border-border bg-background">
+        <div className="flex items-end gap-2 bg-card border border-card-border rounded-2xl px-3 py-2 shadow-sm">
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={e => {
+              setInput(e.target.value);
+              e.target.style.height = "auto";
+              e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+            }}
+            onKeyDown={e => {
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
+            }}
+            placeholder="Напишите сообщение..."
+            rows={1}
+            className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground resize-none outline-none py-1"
+            style={{ minHeight: "24px", maxHeight: "120px" }}
+          />
+          <button
+            onClick={handleVoice}
+            className={cn(
+              "w-8 h-8 flex items-center justify-center rounded-xl flex-shrink-0 transition-colors",
+              isRecording ? "bg-red-500/15 text-red-500" : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            )}
+          >
+            {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
+          </button>
+          <button
+            onClick={handleSend}
+            disabled={!input.trim() || send.isPending}
+            className="w-8 h-8 flex items-center justify-center rounded-xl bg-primary text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors flex-shrink-0"
+          >
+            <Send size={15} />
+          </button>
+        </div>
+        <p className="text-[10px] text-muted-foreground text-center mt-1.5">Shift+Enter — новая строка</p>
       </div>
     </div>
   );

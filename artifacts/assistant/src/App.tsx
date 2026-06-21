@@ -4,24 +4,16 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/lib/theme";
 import Layout from "@/components/Layout";
-import Dashboard from "@/pages/dashboard";
-import Chat from "@/pages/chat";
-import Calendar from "@/pages/calendar";
-import Tasks from "@/pages/tasks";
-import Contacts from "@/pages/contacts";
-import Status from "@/pages/status";
-import Telegram from "@/pages/telegram";
-import Rules from "@/pages/rules";
-import Memory from "@/pages/memory";
-import Logs from "@/pages/logs";
+import AssistantPage from "@/pages/dashboard";
+import CalendarPage from "@/pages/calendar";
+import TasksPage from "@/pages/tasks";
+import ContactsPage from "@/pages/contacts";
+import SettingsPage from "@/pages/settings";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: {
-      staleTime: 30_000,
-      retry: 1,
-    },
+    queries: { staleTime: 30_000, retry: 1 },
   },
 });
 
@@ -29,16 +21,11 @@ function Router() {
   return (
     <Layout>
       <Switch>
-        <Route path="/" component={Dashboard} />
-        <Route path="/chat" component={Chat} />
-        <Route path="/calendar" component={Calendar} />
-        <Route path="/tasks" component={Tasks} />
-        <Route path="/contacts" component={Contacts} />
-        <Route path="/status" component={Status} />
-        <Route path="/telegram" component={Telegram} />
-        <Route path="/rules" component={Rules} />
-        <Route path="/memory" component={Memory} />
-        <Route path="/logs" component={Logs} />
+        <Route path="/" component={AssistantPage} />
+        <Route path="/calendar" component={CalendarPage} />
+        <Route path="/tasks" component={TasksPage} />
+        <Route path="/contacts" component={ContactsPage} />
+        <Route path="/settings" component={SettingsPage} />
         <Route component={NotFound} />
       </Switch>
     </Layout>
