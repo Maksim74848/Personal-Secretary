@@ -1,0 +1,2 @@
+- [AI provider setup](ai-provider.md) — OPENAI_API_KEY holds a Groq key (gsk_); must use Groq base URL with OpenAI SDK
+- [Telegram polling](telegram-polling.md) — polling state lives in telegramState.ts, imported by telegram.ts and system.ts to avoid circular deps

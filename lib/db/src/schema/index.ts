@@ -4,6 +4,8 @@ export * from "./tasks";
 export * from "./conversations";
 export * from "./userStatus";
 export * from "./telegram";
+export * from "./telegramMessages";
 export * from "./rules";
 export * from "./memory";
 export * from "./logs";
+export * from "./userSettings";
