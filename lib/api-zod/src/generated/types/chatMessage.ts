@@ -6,6 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface HealthStatus {
-  status: string;
+export interface ChatMessage {
+  id: number;
+  role: string;
+  content: string;
+  conversationId: number;
+  createdAt: string;
 }

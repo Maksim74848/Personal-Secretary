@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface HealthStatus {
+export interface UserStatusInput {
   status: string;
+  context: string;
+  customMessage?: string;
+  availableUntil?: string;
 }
