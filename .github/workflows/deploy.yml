@@ -23,9 +23,25 @@ jobs:
         with:
           node-version: 18
 
-      - name: Install dependencies
-        working-directory: artifacts/assistant
-        run: npm install
+    - name: Setup pnpm
+  uses: pnpm/action-setup@v4
+  with:
+    version: 10
+
+- name: Setup Node
+  uses: actions/setup-node@v4
+  with:
+    node-version: 22
+    cache: pnpm
+    cache-dependency-path: artifacts/assistant/pnpm-lock.yaml
+
+- name: Install dependencies
+  working-directory: artifacts/assistant
+  run: pnpm install --frozen-lockfile
+
+- name: Build
+  working-directory: artifacts/assistant
+  run: pnpm build
 
       - name: Build
         working-directory: artifacts/assistant
