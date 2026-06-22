@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const telegramSettingsTable = pgTable("telegram_settings", {
   id: serial("id").primaryKey(),
+  userId: text("user_id"),
   enabled: boolean("enabled").notNull().default(false),
   botToken: text("bot_token"),
   botConnected: boolean("bot_connected").notNull().default(false),
@@ -15,6 +16,6 @@ export const telegramSettingsTable = pgTable("telegram_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const insertTelegramSettingsSchema = createInsertSchema(telegramSettingsTable).omit({ id: true, updatedAt: true });
+export const insertTelegramSettingsSchema = createInsertSchema(telegramSettingsTable).omit({ id: true, updatedAt: true, userId: true });
 export type InsertTelegramSettings = z.infer<typeof insertTelegramSettingsSchema>;
 export type TelegramSettings = typeof telegramSettingsTable.$inferSelect;

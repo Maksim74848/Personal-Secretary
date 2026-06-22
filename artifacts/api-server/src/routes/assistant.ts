@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import OpenAI from "openai";
 import { db, conversationsTable, messagesTable, rulesTable, memoryTable, userStatusTable, activityLogsTable, userSettingsTable } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import {
   SendMessageBody,
   SendMessageResponse,
@@ -24,20 +24,20 @@ function getAI() {
   return new OpenAI({ apiKey: key, baseURL: GROQ_BASE_URL });
 }
 
-async function getSettings() {
-  const rows = await db.select().from(userSettingsTable).limit(1);
+async function getSettings(userId: string) {
+  const rows = await db.select().from(userSettingsTable).where(eq(userSettingsTable.userId, userId)).limit(1);
   if (!rows.length) {
-    const [s] = await db.insert(userSettingsTable).values({}).returning();
+    const [s] = await db.insert(userSettingsTable).values({ userId }).returning();
     return s!;
   }
   return rows[0]!;
 }
 
-async function buildSystemPrompt(): Promise<string> {
-  const rules = await db.select().from(rulesTable).where(eq(rulesTable.enabled, true)).orderBy(rulesTable.priority);
-  const memories = await db.select().from(memoryTable).orderBy(memoryTable.createdAt);
-  const statusRows = await db.select().from(userStatusTable).limit(1);
-  const settings = await getSettings();
+async function buildSystemPrompt(userId: string): Promise<string> {
+  const rules = await db.select().from(rulesTable).where(and(eq(rulesTable.enabled, true), eq(rulesTable.userId, userId))).orderBy(rulesTable.priority);
+  const memories = await db.select().from(memoryTable).where(eq(memoryTable.userId, userId)).orderBy(memoryTable.createdAt);
+  const statusRows = await db.select().from(userStatusTable).where(eq(userStatusTable.userId, userId)).limit(1);
+  const settings = await getSettings(userId);
 
   const status = statusRows[0]?.status ?? "free";
   const context = statusRows[0]?.context ?? "";
@@ -65,14 +65,15 @@ async function buildSystemPrompt(): Promise<string> {
     ? memories.map(m => `• [${m.category}] ${m.content}`).join("\n")
     : "Воспоминания отсутствуют.";
 
-  return `Ты — ARIA, персональный ИИ-ассистент. Ты помогаешь пользователю управлять жизнью: расписанием, задачами, контактами, сообщениями.
+  return `Ты — JARVIS, персональный ИИ-ассистент. Ты помогаешь пользователю управлять жизнью: расписанием, задачами, контактами, сообщениями. Ты также можешь отвечать на любые вопросы — общие знания, наука, история, технологии и всё остальное.
 
 ПРАВИЛА ПОВЕДЕНИЯ:
-1. Никогда не придумывай факты. Если не уверен — спроси.
+1. Никогда не придумывай факты. Если не уверен — скажи «не знаю» и предложи проверить.
 2. Никогда не действуй от имени пользователя без его подтверждения.
 3. Ты — ассистент, не пользователь. Не имитируй пользователя.
 4. Предлагай действия, объясняй их, жди подтверждения.
 5. Если что-то неясно — уточни, не предполагай.
+6. На общие вопросы (факты, объяснения, советы) отвечай уверенно и развёрнуто.
 
 СТИЛЬ ОБЩЕНИЯ:
 ${toneMap[settings.tone] ?? toneMap["neutral"]}
@@ -95,13 +96,16 @@ ${memoryText}
 — Помогаю с календарём, задачами, напоминаниями
 — Составляю черновики ответов на сообщения (с подтверждением)
 — Анализирую контакты и ситуации
+— Отвечаю на вопросы по любым темам (наука, история, технологии, советы и т.д.)
 — Объясняю, планирую, организую
 
 Будь честным, точным и полезным. Если не знаешь — скажи об этом.`;
 }
 
-router.get("/assistant/conversations", async (_req, res): Promise<void> => {
-  const conversations = await db.select().from(conversationsTable).orderBy(desc(conversationsTable.createdAt));
+router.get("/assistant/conversations", async (req, res): Promise<void> => {
+  if (!req.user) { res.status(401).json({ error: "Требуется авторизация" }); return; }
+  const userId = req.user.id;
+  const conversations = await db.select().from(conversationsTable).where(eq(conversationsTable.userId, userId)).orderBy(desc(conversationsTable.createdAt));
   const result = await Promise.all(
     conversations.map(async (conv) => {
       const msgs = await db.select().from(messagesTable).where(eq(messagesTable.conversationId, conv.id)).orderBy(desc(messagesTable.createdAt)).limit(1);
@@ -119,8 +123,12 @@ router.get("/assistant/conversations", async (_req, res): Promise<void> => {
 });
 
 router.get("/assistant/conversations/:id/messages", async (req, res): Promise<void> => {
+  if (!req.user) { res.status(401).json({ error: "Требуется авторизация" }); return; }
   const params = GetConversationMessagesParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
+  // Verify conversation belongs to user
+  const [conv] = await db.select().from(conversationsTable).where(and(eq(conversationsTable.id, params.data.id), eq(conversationsTable.userId, req.user.id)));
+  if (!conv) { res.status(404).json({ error: "Диалог не найден" }); return; }
   const messages = await db.select().from(messagesTable).where(eq(messagesTable.conversationId, params.data.id)).orderBy(messagesTable.createdAt);
   res.json(GetConversationMessagesResponse.parse(
     messages.map(m => ({ id: m.id, role: m.role, content: m.content, conversationId: m.conversationId, createdAt: m.createdAt.toISOString() }))
@@ -128,16 +136,22 @@ router.get("/assistant/conversations/:id/messages", async (req, res): Promise<vo
 });
 
 router.post("/assistant/chat", async (req, res): Promise<void> => {
+  if (!req.user) { res.status(401).json({ error: "Требуется авторизация" }); return; }
   const parsed = SendMessageBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
   const { content, conversationId } = parsed.data;
+  const userId = req.user.id;
 
   let convId = conversationId ?? null;
   if (!convId) {
     const title = content.slice(0, 50) + (content.length > 50 ? "..." : "");
-    const [conv] = await db.insert(conversationsTable).values({ title }).returning();
+    const [conv] = await db.insert(conversationsTable).values({ title, userId }).returning();
     convId = conv!.id;
+  } else {
+    // Verify ownership
+    const [conv] = await db.select().from(conversationsTable).where(and(eq(conversationsTable.id, convId), eq(conversationsTable.userId, userId)));
+    if (!conv) { res.status(403).json({ error: "Нет доступа к диалогу" }); return; }
   }
 
   await db.insert(messagesTable).values({ conversationId: convId, role: "user", content });
@@ -147,7 +161,7 @@ router.post("/assistant/chat", async (req, res): Promise<void> => {
   let assistantContent: string;
   try {
     const ai = getAI();
-    const systemPrompt = await buildSystemPrompt();
+    const systemPrompt = await buildSystemPrompt(userId);
     const completion = await ai.chat.completions.create({
       model: MAIN_MODEL,
       max_tokens: 2048,
@@ -171,11 +185,11 @@ router.post("/assistant/chat", async (req, res): Promise<void> => {
     } else {
       assistantContent = `⚠️ Ошибка ИИ: ${errMsg.slice(0, 120)}`;
     }
-    await db.insert(activityLogsTable).values({ type: "system", message: `Ошибка ИИ: ${errMsg.slice(0, 200)}`, source: "assistant" });
+    await db.insert(activityLogsTable).values({ userId, type: "system", message: `Ошибка ИИ: ${errMsg.slice(0, 200)}`, source: "assistant" });
   }
 
   const [saved] = await db.insert(messagesTable).values({ conversationId: convId, role: "assistant", content: assistantContent }).returning();
-  await db.insert(activityLogsTable).values({ type: "chat", message: `Сообщение обработано в диалоге #${convId}`, source: "web" });
+  await db.insert(activityLogsTable).values({ userId, type: "chat", message: `Сообщение обработано в диалоге #${convId}`, source: "web" });
 
   res.json(SendMessageResponse.parse({
     id: saved!.id,
@@ -187,11 +201,13 @@ router.post("/assistant/chat", async (req, res): Promise<void> => {
 });
 
 router.post("/assistant/draft-response", async (req, res): Promise<void> => {
+  if (!req.user) { res.status(401).json({ error: "Требуется авторизация" }); return; }
   const parsed = DraftAutoResponseBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
   const { senderName, messageContent } = parsed.data;
-  const statusRows = await db.select().from(userStatusTable).limit(1);
+  const userId = req.user.id;
+  const statusRows = await db.select().from(userStatusTable).where(eq(userStatusTable.userId, userId)).limit(1);
   const status = statusRows[0]?.status ?? "free";
   const context = statusRows[0]?.context ?? "";
   const customMsg = statusRows[0]?.customMessage ?? "";
@@ -209,7 +225,7 @@ router.post("/assistant/draft-response", async (req, res): Promise<void> => {
       messages: [
         {
           role: "system",
-          content: `Ты — ARIA, персональный ИИ-ассистент. Составь вежливый ответ на сообщение.
+          content: `Ты — JARVIS, персональный ИИ-ассистент. Составь вежливый ответ на сообщение.
 Статус пользователя: ${status}. Контекст: ${context || "не задан"}.
 ${customMsg ? `Пользователь указал: "${customMsg}"` : ""}
 Верни JSON: { "draft": "...", "requiresConfirmation": true/false, "reason": "...", "alternatives": ["...", "..."] }
@@ -229,11 +245,10 @@ ${customMsg ? `Пользователь указал: "${customMsg}"` : ""}
     // fallback to manual draft — already set above
   }
 
-  await db.insert(activityLogsTable).values({ type: "auto-reply", message: `Черновик ответа для ${senderName}`, source: "web" });
+  await db.insert(activityLogsTable).values({ userId, type: "auto-reply", message: `Черновик ответа для ${senderName}`, source: "web" });
   res.json(DraftAutoResponseResponse.parse({ draft, requiresConfirmation, reason, alternatives }));
 });
 
-// System status
 router.get("/assistant/ai-status", async (_req, res): Promise<void> => {
   const key = process.env.OPENAI_API_KEY;
   if (!key) {
@@ -254,14 +269,15 @@ router.get("/assistant/ai-status", async (_req, res): Promise<void> => {
   }
 });
 
-// User settings
-router.get("/assistant/settings", async (_req, res): Promise<void> => {
-  const s = await getSettings();
+router.get("/assistant/settings", async (req, res): Promise<void> => {
+  if (!req.user) { res.status(401).json({ error: "Требуется авторизация" }); return; }
+  const s = await getSettings(req.user.id);
   res.json(s);
 });
 
 router.put("/assistant/settings", async (req, res): Promise<void> => {
-  const s = await getSettings();
+  if (!req.user) { res.status(401).json({ error: "Требуется авторизация" }); return; }
+  const s = await getSettings(req.user.id);
   const allowed = ["tone", "verbosity", "emojiEnabled", "confirmBeforeAction", "autoConfirmLowRisk"] as const;
   const update: Partial<typeof userSettingsTable.$inferInsert> = {};
   for (const k of allowed) {

@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const contactsTable = pgTable("contacts", {
   id: serial("id").primaryKey(),
+  userId: text("user_id"),
   name: text("name").notNull(),
   identifier: text("identifier"),
   telegramUsername: text("telegram_username"),
@@ -17,6 +18,6 @@ export const contactsTable = pgTable("contacts", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const insertContactSchema = createInsertSchema(contactsTable).omit({ id: true, createdAt: true });
+export const insertContactSchema = createInsertSchema(contactsTable).omit({ id: true, createdAt: true, userId: true });
 export type InsertContact = z.infer<typeof insertContactSchema>;
 export type Contact = typeof contactsTable.$inferSelect;

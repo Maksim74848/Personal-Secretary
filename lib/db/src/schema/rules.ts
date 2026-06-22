@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const rulesTable = pgTable("rules", {
   id: serial("id").primaryKey(),
+  userId: text("user_id"),
   title: text("title").notNull(),
   description: text("description").notNull(),
   category: text("category").notNull().default("behavior"),
@@ -12,6 +13,6 @@ export const rulesTable = pgTable("rules", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const insertRuleSchema = createInsertSchema(rulesTable).omit({ id: true, createdAt: true });
+export const insertRuleSchema = createInsertSchema(rulesTable).omit({ id: true, createdAt: true, userId: true });
 export type InsertRule = z.infer<typeof insertRuleSchema>;
 export type Rule = typeof rulesTable.$inferSelect;

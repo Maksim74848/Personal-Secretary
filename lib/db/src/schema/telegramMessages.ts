@@ -2,6 +2,7 @@ import { pgTable, text, serial, timestamp, integer, boolean } from "drizzle-orm/
 
 export const telegramMessagesTable = pgTable("telegram_messages", {
   id: serial("id").primaryKey(),
+  userId: text("user_id"),
   telegramMessageId: integer("telegram_message_id"),
   chatId: text("chat_id").notNull(),
   fromUsername: text("from_username"),

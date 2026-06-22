@@ -112,8 +112,8 @@ export default function Chat() {
                 <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-3">
                   <MessageSquare size={20} className="text-primary" />
                 </div>
-                <p className="text-sm font-medium text-foreground">How can I help you today?</p>
-                <p className="text-xs text-muted-foreground mt-1">Start a conversation with ARIA</p>
+                <p className="text-sm font-medium text-foreground">Чем могу помочь?</p>
+                <p className="text-xs text-muted-foreground mt-1">Начните разговор с JARVIS</p>
               </div>
             </div>
           )}
@@ -158,7 +158,7 @@ export default function Chat() {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-              placeholder="Message ARIA..."
+              placeholder="Сообщение для JARVIS..."
               rows={1}
               className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground resize-none outline-none max-h-32 py-1"
               style={{ minHeight: "24px" }}

@@ -2,6 +2,7 @@ import { pgTable, text, serial, timestamp, boolean } from "drizzle-orm/pg-core";
 
 export const userSettingsTable = pgTable("user_settings", {
   id: serial("id").primaryKey(),
+  userId: text("user_id"),
   tone: text("tone").notNull().default("neutral"),
   verbosity: text("verbosity").notNull().default("normal"),
   emojiEnabled: boolean("emoji_enabled").notNull().default(false),

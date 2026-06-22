@@ -1,16 +1,18 @@
 import { Link, useLocation } from "wouter";
 import { useTheme } from "@/lib/theme";
 import {
-  MessageSquare, Calendar, CheckSquare, Users, Settings, Moon, Sun, Zap
+  MessageSquare, Calendar, CheckSquare, Users, Settings, Moon, Sun, Zap, FolderOpen, LogOut
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useGetUserStatus } from "@workspace/api-client-react";
+import { useAuth } from "@workspace/replit-auth-web";
 
 const NAV = [
-  { path: "/", icon: MessageSquare, label: "Ассистент" },
+  { path: "/", icon: MessageSquare, label: "Чат" },
   { path: "/calendar", icon: Calendar, label: "Календарь" },
   { path: "/tasks", icon: CheckSquare, label: "Задачи" },
   { path: "/contacts", icon: Users, label: "Контакты" },
+  { path: "/files", icon: FolderOpen, label: "Файлы" },
   { path: "/settings", icon: Settings, label: "Настройки" },
 ];
 
@@ -28,10 +30,13 @@ const STATUS_LABELS: Record<string, string> = {
   custom: "Особый",
 };
 
+const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { theme, toggle } = useTheme();
   const { data: status } = useGetUserStatus();
+  const { user } = useAuth();
 
   const isActive = (path: string) =>
     path === "/" ? location === "/" : location.startsWith(path);
@@ -45,7 +50,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <Zap size={13} className="text-white" />
           </div>
           <div>
-            <span className="text-foreground font-semibold text-sm">ARIA</span>
+            <span className="text-foreground font-semibold text-sm">JARVIS</span>
             <div className="flex items-center gap-1.5">
               <span className={cn("w-1.5 h-1.5 rounded-full flex-shrink-0", STATUS_COLORS[status?.status ?? "free"])} />
               <span className="text-xs text-muted-foreground">{STATUS_LABELS[status?.status ?? "free"]}</span>
@@ -53,13 +58,25 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </div>
-        <button
-          onClick={toggle}
-          className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          aria-label="Переключить тему"
-        >
-          {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
-        </button>
+        <div className="flex items-center gap-1">
+          {user && (
+            <a
+              href={`${BASE}/api/logout`}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              aria-label="Выйти"
+              title={user.firstName ?? user.email ?? "Выйти"}
+            >
+              <LogOut size={15} />
+            </a>
+          )}
+          <button
+            onClick={toggle}
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            aria-label="Переключить тему"
+          >
+            {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+          </button>
+        </div>
       </header>
 
       {/* Page content */}
@@ -77,12 +94,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 key={path}
                 href={path}
                 className={cn(
-                  "flex-1 flex flex-col items-center justify-center py-2.5 gap-1 transition-colors text-center",
+                  "flex-1 flex flex-col items-center justify-center py-2 gap-0.5 transition-colors text-center",
                   active ? "text-primary" : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                <Icon size={20} strokeWidth={active ? 2.5 : 1.8} />
-                <span className={cn("text-[10px] leading-none font-medium", active ? "text-primary" : "")}>{label}</span>
+                <Icon size={18} strokeWidth={active ? 2.5 : 1.8} />
+                <span className={cn("text-[9px] leading-none font-medium", active ? "text-primary" : "")}>{label}</span>
               </Link>
             );
           })}

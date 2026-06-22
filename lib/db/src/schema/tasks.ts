@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const tasksTable = pgTable("tasks", {
   id: serial("id").primaryKey(),
+  userId: text("user_id"),
   title: text("title").notNull(),
   description: text("description"),
   status: text("status").notNull().default("pending"),
@@ -15,6 +16,6 @@ export const tasksTable = pgTable("tasks", {
   completedAt: timestamp("completed_at", { withTimezone: true }),
 });
 
-export const insertTaskSchema = createInsertSchema(tasksTable).omit({ id: true, createdAt: true, completedAt: true });
+export const insertTaskSchema = createInsertSchema(tasksTable).omit({ id: true, createdAt: true, completedAt: true, userId: true });
 export type InsertTask = z.infer<typeof insertTaskSchema>;
 export type Task = typeof tasksTable.$inferSelect;
